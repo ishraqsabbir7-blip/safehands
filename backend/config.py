@@ -1,0 +1,1 @@
+CHALLENGE_EXPIRY_SECONDS = 60   # how long a challenge stays valid
