@@ -1,15 +1,23 @@
+import hashlib
+import json
 import secrets
 import time
 import uuid
-from backend.db import challenges
-from backend.config import CHALLENGE_EXPIRY_SECONDS
 from pathlib import Path
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization, hashes
+
 from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
+from backend.config import CHALLENGE_EXPIRY_SECONDS
+from backend.db import audit_log, challenges
 
 BASE = Path(__file__).resolve().parent
 
+
+# ---------------------------------------------------------------------------
+# Challenge creation
+# ---------------------------------------------------------------------------
 
 def create_challenge(action: str, amount: float) -> dict:
     """
@@ -17,7 +25,7 @@ def create_challenge(action: str, amount: float) -> dict:
     Returns the challenge dict that gets shown to the phone/dashboard.
     """
     challenge_id = str(uuid.uuid4())
-    nonce = secrets.token_hex(16)
+    nonce = secrets.token_hex(16)  # random, unpredictable, one-time value
     now = time.time()
     expires_at = now + CHALLENGE_EXPIRY_SECONDS
 
@@ -28,7 +36,7 @@ def create_challenge(action: str, amount: float) -> dict:
         "nonce": nonce,
         "created_at": now,
         "expires_at": expires_at,
-        "status": "pending",
+        "status": "pending",   # pending -> approved / expired / rejected
     }
 
     challenges.insert_one(challenge)
@@ -45,6 +53,10 @@ def build_message_to_sign(challenge: dict) -> bytes:
     return text.encode()
 
 
+# ---------------------------------------------------------------------------
+# Key loading (simulated device key pair)
+# ---------------------------------------------------------------------------
+
 def load_private_key():
     """Loads the device's private key (simulating the phone)."""
     with open(BASE / "device_private_key.pem", "rb") as f:
@@ -56,6 +68,10 @@ def load_public_key():
     with open(BASE / "device_public_key.pem", "rb") as f:
         return serialization.load_pem_public_key(f.read())
 
+
+# ---------------------------------------------------------------------------
+# Signing and verification
+# ---------------------------------------------------------------------------
 
 def sign_challenge(challenge: dict) -> bytes:
     """
@@ -78,6 +94,62 @@ def verify_signature(challenge: dict, signature: bytes) -> bool:
         return True
     except InvalidSignature:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Hash-chained audit log
+# ---------------------------------------------------------------------------
+
+def _compute_entry_hash(data: dict, prev_hash: str) -> str:
+    """Same idea as the try_chain.py experiment."""
+    text = json.dumps(data, sort_keys=True) + prev_hash
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def add_log_entry(data: dict) -> dict:
+    """
+    Appends a new entry to the audit log, linked to the previous entry's hash.
+    """
+    last_entry = audit_log.find_one(sort=[("seq", -1)])
+    prev_hash = last_entry["hash"] if last_entry else "0" * 64
+    seq = (last_entry["seq"] + 1) if last_entry else 0
+
+    entry_hash = _compute_entry_hash(data, prev_hash)
+
+    entry = {
+        "seq": seq,
+        "data": data,
+        "prev_hash": prev_hash,
+        "hash": entry_hash,
+        "timestamp": time.time(),
+    }
+
+    audit_log.insert_one(entry)
+    return entry
+
+
+def verify_log() -> dict:
+    """
+    Walks the entire chain and checks it hasn't been tampered with.
+    """
+    entries = list(audit_log.find(sort=[("seq", 1)]))
+    prev_hash = "0" * 64
+
+    for entry in entries:
+        if entry["prev_hash"] != prev_hash:
+            return {"valid": False, "broken_at": entry["seq"], "reason": "prev_hash mismatch"}
+        expected_hash = _compute_entry_hash(entry["data"], entry["prev_hash"])
+        if expected_hash != entry["hash"]:
+            return {"valid": False, "broken_at": entry["seq"], "reason": "data was edited"}
+        prev_hash = entry["hash"]
+
+    return {"valid": True, "entries_checked": len(entries)}
+
+
+# ---------------------------------------------------------------------------
+# Main approval flow (ties everything together)
+# ---------------------------------------------------------------------------
+
 def approve_challenge(challenge_id: str, signature: bytes) -> dict:
     """
     The main server-side check. Called when a signed approval comes in.
@@ -107,5 +179,12 @@ def approve_challenge(challenge_id: str, signature: bytes) -> dict:
 
     if result is None:
         return {"success": False, "reason": "Challenge was already used (race condition caught)"}
+
+    add_log_entry({
+        "event": "challenge_approved",
+        "challenge_id": challenge_id,
+        "action": challenge["action"],
+        "amount": challenge["amount"],
+    })
 
     return {"success": True, "reason": "Approved", "challenge": challenge}
