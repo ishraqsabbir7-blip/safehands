@@ -78,3 +78,34 @@ def verify_signature(challenge: dict, signature: bytes) -> bool:
         return True
     except InvalidSignature:
         return False
+def approve_challenge(challenge_id: str, signature: bytes) -> dict:
+    """
+    The main server-side check. Called when a signed approval comes in.
+    Returns a result dict explaining what happened.
+    """
+    challenge = challenges.find_one({"_id": challenge_id})
+
+    if challenge is None:
+        return {"success": False, "reason": "Challenge not found"}
+
+    if challenge["status"] != "pending":
+        return {"success": False, "reason": f"Challenge already {challenge['status']}"}
+
+    if time.time() > challenge["expires_at"]:
+        challenges.update_one({"_id": challenge_id}, {"$set": {"status": "expired"}})
+        return {"success": False, "reason": "Challenge expired"}
+
+    if not verify_signature(challenge, signature):
+        return {"success": False, "reason": "Invalid signature"}
+
+    # Atomic: only succeeds if it's STILL pending at this exact moment.
+    # This is what actually stops two simultaneous replay attempts.
+    result = challenges.find_one_and_update(
+        {"_id": challenge_id, "status": "pending"},
+        {"$set": {"status": "approved", "approved_at": time.time()}}
+    )
+
+    if result is None:
+        return {"success": False, "reason": "Challenge was already used (race condition caught)"}
+
+    return {"success": True, "reason": "Approved", "challenge": challenge}
