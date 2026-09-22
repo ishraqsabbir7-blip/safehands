@@ -6,3 +6,6 @@
   "ModuleNotFoundError: No module named 'backend'" because Python adds
   the script's own folder to sys.path, not the project root.
   Fixed by running as a module instead: python -m backend.mcp_server
+  - mcp client: streamable_http_client() context manager yields
+  (read_stream, write_stream) — 2 values, not 3 as in some older
+  examples. Fixed by unpacking only 2.
