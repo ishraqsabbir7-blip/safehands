@@ -1,0 +1,7 @@
+mcp
+cryptography
+flask
+flask-cors
+pymongo
+python-dotenv
+pytest
