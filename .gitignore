@@ -216,3 +216,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+backend/device_private_key.pem
+backend/device_public_key.pem
