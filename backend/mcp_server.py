@@ -1,5 +1,5 @@
 from mcp.server.mcpserver import MCPServer
-from backend.crypto_core import create_challenge
+from backend.crypto_core import create_challenge, sign_challenge, approve_challenge
 from backend.db import challenges
 
 mcp = MCPServer("safehands")
@@ -30,6 +30,23 @@ def check_status(challenge_id: str) -> dict:
     if challenge is None:
         return {"status": "not_found"}
     return {"status": challenge["status"]}
+
+
+@mcp.tool()
+def approve_pending(challenge_id: str) -> dict:
+    """
+    Simulates the phone approving a pending challenge.
+    In the real product, signing happens ON the phone (WebCrypto),
+    and only the signature is sent here. For this demo, we sign
+    locally using the device's private key file.
+    """
+    challenge = challenges.find_one({"_id": challenge_id})
+    if challenge is None:
+        return {"success": False, "reason": "Challenge not found"}
+
+    signature = sign_challenge(challenge)
+    result = approve_challenge(challenge_id, signature)
+    return result
 
 
 if __name__ == "__main__":
