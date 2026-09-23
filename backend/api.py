@@ -39,7 +39,7 @@ def approve(challenge_id):
 @app.route("/api/audit-log", methods=["GET"])
 def get_audit_log():
     """Return the full audit log, oldest first."""
-    entries = list(audit_log.find(sort=[("seq", 1)]))
+    entries = list(audit_log.find({}, {"_id": 0}, sort=[("seq", 1)]))
     return jsonify(entries)
 
 
@@ -53,6 +53,30 @@ def verify_audit_log():
 def health():
     """Simple check that the API is alive."""
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/voice-command", methods=["POST"])
+def voice_command():
+    """
+    Simulates what Alexa+ would do: takes a parsed voice command
+    and creates a challenge. Uses the same crypto_core function
+    as the real MCP request_action tool.
+    """
+    from backend.crypto_core import create_challenge
+
+    data = request.get_json()
+    action = data.get("action")
+    amount = data.get("amount")
+
+    if not action or amount is None:
+        return jsonify({"success": False, "reason": "Could not understand the command"}), 400
+
+    challenge = create_challenge(action, float(amount))
+    return jsonify({
+        "success": True,
+        "challenge_id": challenge["_id"],
+        "message": f"Created a pending request: {action} for {amount}",
+    })
 
 
 if __name__ == "__main__":

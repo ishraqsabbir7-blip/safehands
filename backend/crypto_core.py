@@ -48,8 +48,15 @@ def build_message_to_sign(challenge: dict) -> bytes:
     Builds the exact byte string that the phone must sign.
     Every field that matters is included, so changing any of them
     breaks the signature.
+
+    Amount is formatted to a fixed 2 decimal places, because Python
+    and JavaScript format whole-number floats differently by default
+    (2500.0 vs 2500), which would otherwise silently break cross-language
+    signature verification. Both crypto_core.py and App.jsx must format
+    amounts identically.
     """
-    text = f"{challenge['_id']}|{challenge['action']}|{challenge['amount']}|{challenge['nonce']}"
+    amount_str = f"{float(challenge['amount']):.2f}"
+    text = f"{challenge['_id']}|{challenge['action']}|{amount_str}|{challenge['nonce']}"
     return text.encode()
 
 
