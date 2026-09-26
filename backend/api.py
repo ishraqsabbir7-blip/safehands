@@ -77,6 +77,26 @@ def voice_command():
         "challenge_id": challenge["_id"],
         "message": f"Created a pending request: {action} for {amount}",
     })
+@app.route("/api/audit-log/simulate-tamper", methods=["POST"])
+def simulate_tamper():
+    """
+    DEMO-ONLY: deliberately corrupts one log entry to prove the
+    hash chain detects tampering. Never expose this in a real product.
+    """
+    first_entry = audit_log.find_one(sort=[("seq", 1)])
+    if not first_entry:
+        return jsonify({"success": False, "reason": "No log entries to tamper with"}), 400
+
+    # Corrupt the amount in the earliest entry, without recomputing its hash
+    tampered_data = dict(first_entry["data"])
+    tampered_data["amount"] = 999999
+
+    audit_log.update_one(
+        {"seq": first_entry["seq"]},
+        {"$set": {"data": tampered_data}}
+    )
+
+    return jsonify({"success": True, "tampered_seq": first_entry["seq"]})
 
 
 if __name__ == "__main__":

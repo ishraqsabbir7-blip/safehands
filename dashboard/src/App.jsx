@@ -90,6 +90,7 @@ export default function App() {
   const [transcript, setTranscript] = useState("");
   const [parsedPreview, setParsedPreview] = useState(null);
   const [justApproved, setJustApproved] = useState(null);
+  const [tamperResult, setTamperResult] = useState(null);
   const recognitionRef = useRef(null);
 
   const fetchPending = useCallback(async () => {
@@ -184,6 +185,20 @@ export default function App() {
     recognition.start();
   }
 
+  async function handleSimulateTamper() {
+    try {
+      const res = await axios.post(`${API_BASE}/audit-log/simulate-tamper`);
+      if (res.data.success) {
+        setTamperResult(`Tampered with entry #${res.data.tampered_seq}. Re-checking chain...`);
+        await fetchLog();
+      } else {
+        setTamperResult(res.data.reason);
+      }
+    } catch (err) {
+      setTamperResult("Error: " + (err.response?.data?.reason || err.message));
+    }
+  }
+
   const approvedCount = log.filter((e) => e.data.event === "challenge_approved").length;
 
   return (
@@ -201,7 +216,6 @@ export default function App() {
       {message && <div className="banner">{message}</div>}
 
       <div className="layout">
-        {/* LEFT SIDEBAR */}
         <aside className="sidebar">
           <div className="panel voice-panel">
             <h3>Voice Command</h3>
@@ -268,7 +282,6 @@ export default function App() {
           </div>
         </aside>
 
-        {/* RIGHT MAIN AREA */}
         <main className="main-content">
           <section className="panel">
             <h2>Pending Approvals</h2>
@@ -311,7 +324,11 @@ export default function App() {
                   {logStatus.valid ? "Chain Verified" : "Chain Broken"}
                 </span>
               )}
+              <button className="tamper-btn" onClick={handleSimulateTamper}>
+                ⚠ Simulate Attack
+              </button>
             </h2>
+            {tamperResult && <p className="tamper-note">{tamperResult}</p>}
             {log.length === 0 ? (
               <div className="empty">
                 <div className="empty-icon">📜</div>
